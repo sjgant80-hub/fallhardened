@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fallhardened — the primitives whose hand-rolled versions caused the bugs</title>
+<style>
+  :root {
+    --bg:#0d1017; --panel:#151a23; --ink:#e6edf3; --dim:#9aa7b4; --line:#232a35;
+    --acc:#8ab4f8; --bug:#e0728a; --fix:#6ee7b7; --live:#7dd3fc; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f7f9fb; --panel:#fff; --ink:#141a21; --dim:#586470; --line:#e3e8ee; --acc:#2b5fb3; --bug:#b23b57; --fix:#0d7a54; --live:#0369a1; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:840px; margin:0 auto; padding:56px 22px 80px; }
+  h1 { font-size:2.6rem; margin:0 0 4px; letter-spacing:-.02em; }
+  h1 .dot { color:var(--acc); }
+  .tag { color:var(--dim); font-size:1.1rem; margin:0 0 26px; }
+  .live { display:inline-block; margin-bottom:34px; font-family:var(--mono); font-size:.82rem; color:var(--live); border:1px solid var(--line); border-radius:7px; padding:5px 11px; text-decoration:none; }
+  .live:hover { border-color:var(--live); }
+  h2 { font-size:1.02rem; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:40px 0 14px; font-weight:600; }
+  .lead { font-size:1.12rem; }
+  table { width:100%; border-collapse:collapse; font-size:.93rem; }
+  .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:12px; }
+  th, td { text-align:left; padding:12px 16px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; }
+  tr:last-child td { border-bottom:0; }
+  td.bug { color:var(--bug); }
+  td.fix { font-family:var(--mono); font-size:.85rem; color:var(--fix); white-space:nowrap; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; overflow-x:auto; font-family:var(--mono); font-size:.84rem; line-height:1.75; }
+  .c-dim { color:var(--dim); }
+  code { font-family:var(--mono); font-size:.9em; background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:1px 5px; }
+  pre code { background:none; border:0; padding:0; }
+  .note { border-left:3px solid var(--acc); padding:6px 0 6px 16px; color:var(--dim); margin:16px 0; }
+  footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--line); color:var(--dim); font-size:.85rem; }
+  footer a { color:var(--live); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>fallhardened<span class="dot">.</span></h1>
+  <p class="tag">The primitives whose hand-rolled versions caused the bugs.</p>
+  <a class="live" href="https://github.com/sjgant80-hub/fallhardened">github.com/sjgant80-hub/fallhardened →</a>
+
+  <p class="lead">Four adversarial audit passes across the estate's engines found the same classes of bug
+  over and over — and nearly every one came from re-implementing a primitive by hand and getting it
+  subtly wrong. This module is the <strong>one correct implementation</strong> of each, so a build
+  imports it instead of re-inventing the sharp edge.</p>
+
+  <h2>The sharp edges it removes</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Hand-rolled bug the audits found</th><th>Primitive that fixes it</th></tr></thead>
+    <tbody>
+      <tr><td class="bug">A 32-bit content hash that collided by ~65k items and silently cross-bound content</td><td class="fix">strongHash</td></tr>
+      <tr><td class="bug"><code>String(obj)</code> flattening every object to "[object Object]"</td><td class="fix">strongHash · safeString</td></tr>
+      <tr><td class="bug">verify() throwing on null / BigInt / circular / a toxic getter</td><td class="fix">guard(fn, fallback)</td></tr>
+      <tr><td class="bug">localeCompare ordering Unicode-equal keys differently per machine, breaking a seal</td><td class="fix">codeCompare · byKey</td></tr>
+      <tr><td class="bug">An id suffix that could itself re-collide with a crafted id</td><td class="fix">uniqueId</td></tr>
+      <tr><td class="bug">Consistent-hash ring positions from a weak/biased hash</td><td class="fix">unitHash</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>API</h2>
+<pre><code><span class="c-dim">import</span> { strongHash, guard, safeString, codeCompare, uniqueId, unitHash } <span class="c-dim">from</span> 'fallhardened';
+
+strongHash({ any: 'content' })   <span class="c-dim">// 128-bit hex; THROWS on circular/BigInt so the caller isolates it</span>
+guard(verify, { valid: false }) <span class="c-dim">// verify() that returns the fallback instead of throwing (sync OR async)</span>
+safeString(toxic)               <span class="c-dim">// '' even if toString() throws — never a crash, never "[object Object]"</span>
+codeCompare(a, b)               <span class="c-dim">// -1|0|1 by code unit — locale-independent, seal-safe</span>
+uniqueId('node', usedSet)       <span class="c-dim">// an id not in the set, disambiguated by a suffix that loops until unique</span></code></pre>
+
+  <h2>Why a shared module, not copy-paste</h2>
+  <p class="note">The audit lesson was not "these functions had bugs" — it was that every engine
+  re-derived them and each re-derivation reintroduced a different subtle failure. One audited, fuzzed,
+  mutation-tested implementation, imported everywhere, files the sharp edge off <em>once</em>. A new
+  failure mode is fixed here, and the whole estate inherits the fix. Verified by
+  <a href="https://sjgant80-hub.github.io/witness/" style="color:var(--live)">witness</a>.</p>
+
+  <footer>
+    Part of the estate · zero dependencies · MIT ·
+    <a href="https://github.com/sjgant80-hub/fallhardened">source</a>
+  </footer>
+</div>
+</body>
+</html>
