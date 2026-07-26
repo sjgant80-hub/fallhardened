@@ -1,0 +1,10 @@
+{
+  "name": "fallhardened",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "hardened.mjs",
+  "scripts": {
+    "test": "node --test hardened.test.mjs"
+  },
+  "license": "MIT"
+}
