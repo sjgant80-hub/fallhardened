@@ -1,0 +1,18 @@
+{
+  "id": "fallhardened",
+  "ring": "R1-perception",
+  "mesh": "niceassos-mesh",
+  "konomified": null,
+  "proof": {
+    "benchmark": "assessor-v0.7",
+    "core": "10/10",
+    "hash": "b5b4959ee5b6fc961a3a58252c4c52a0"
+  },
+  "behaviour": {
+    "gate": "witness",
+    "clean": true,
+    "score": 0.588,
+    "source": "hardened.mjs",
+    "skipped": false
+  }
+}
