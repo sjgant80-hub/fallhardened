@@ -18,6 +18,14 @@ test('strongHash throws on unserialisable content (caller isolates, never collid
   assert.throws(() => strongHash(circ));
 });
 
+// GOLDEN VALUES — pin the exact hash output so the hash LOOP is guarded, not just its shape. Without these,
+// mutating `i < s.length` → `i <= s.length` produces a different-but-well-formed hash that format/determinism
+// checks miss (a real test-theatre gap the estate rail caught: strongHash content-addresses the whole estate).
+test('strongHash / unitHash are pinned to golden values — the hash loop is exact, not merely well-formed', () => {
+  assert.equal(strongHash('abc'), '1cc93dbce5d5c79f54bb0031268bd56b');
+  assert.equal(unitHash('abc'), 0.1124456962570548);
+});
+
 test('unitHash is well-distributed in [0,1)', () => {
   const vals = Array.from({ length: 1000 }, (_, i) => unitHash(`k${i}`));
   assert.ok(vals.every(v => v >= 0 && v < 1));
@@ -68,6 +76,17 @@ test('byKey sorts by an extracted key, numbers and strings', () => {
   assert.deepEqual(nums.map(o => o.n), [1, 2, 3]);
   const desc = [{ n: 1 }, { n: 3 }, { n: 2 }].sort(byKey(o => o.n, -1));
   assert.deepEqual(desc.map(o => o.n), [3, 2, 1]);
+});
+
+// Single-digit keys sort the same numerically or lexically, so they don't guard the numeric branch. These
+// pin it: 2 < 10 numerically but "2" > "10" lexically (kills `typeof===` → `!==`), and a mixed-type pair
+// must fall back to codeCompare, not compute 2 - "x" = NaN (kills `&&` → `||`).
+test('byKey compares numeric keys NUMERICALLY, and falls back to codeCompare on mixed types', () => {
+  const cmp = byKey(o => o.n);
+  assert.equal(cmp({ n: 2 }, { n: 10 }), -8, 'numeric: 2 < 10 even though "2" > "10" lexically');
+  assert.equal(cmp({ n: 10 }, { n: 2 }), 8);
+  assert.equal(byKey(o => o.n, -1)({ n: 2 }, { n: 10 }), 8, 'dir reverses');
+  assert.equal(cmp({ n: 2 }, { n: 'x' }), -1, 'mixed types use codeCompare, never (2 - "x") = NaN');
 });
 
 test('uniqueId disambiguates duplicates — including ids that collide with the suffix pattern', () => {

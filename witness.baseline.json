@@ -1,0 +1,12 @@
+[
+  {
+    "mutation": "> → >=",
+    "snippet": "export function clamp01(v) { const n = Number(v); return !Number.isFinite(n) ? 0 : n < 0 ?",
+    "reason": "equivalent: clamp01 returns 1 at the boundary n=1 whether the test is `n > 1` or `n >= 1` — the mutated boundary maps the boundary value to the same output, so no test can distinguish it"
+  },
+  {
+    "mutation": "< → <=",
+    "snippet": "export function clamp01(v) { const n = Number(v); return !Number.isFinite(n) ? 0 : n < 0 ?",
+    "reason": "equivalent: clamp01 returns 0 at the boundary n=0 whether the test is `n < 0` or `n <= 0` — the mutated boundary maps the boundary value to the same output, so no test can distinguish it"
+  }
+]
