@@ -24,6 +24,11 @@ const isFn = (f) => typeof f === 'function';
  *
  * @param opts.sha256    async (string) => hex digest. Injected so this stays pure and testable.
  * @param opts.payloadOf (prevHash, entry, index) => string — exactly the bytes that get signed.
+ *                   May return a promise: one tool in this estate hashes the payload first and signs
+ *                   THAT, so the layout itself needs to await a digest.
+ * @param opts.hashField which field on an entry holds the chain hash. Default "docHash". One tool
+ *                   keeps two hashes — a docHash over the payload and a separate `hash` for the
+ *                   link — so the field cannot be assumed.
  */
 export function auditChain(opts) {
   // A default parameter does not fire on an explicit null, and null is what a caller reading a
@@ -31,6 +36,7 @@ export function auditChain(opts) {
   const o = (opts && typeof opts === 'object') ? opts : {};
   const sha256 = o.sha256;
   const payloadOf = o.payloadOf;
+  const hashField = (typeof o.hashField === 'string' && o.hashField) ? o.hashField : 'docHash';
   if (!isFn(sha256)) throw new Error('auditChain needs a sha256(string) function');
   if (!isFn(payloadOf)) throw new Error('auditChain needs a payloadOf(prevHash, entry, index) function');
 
@@ -46,7 +52,7 @@ export function auditChain(opts) {
     if (!log.length) return GENESIS;
     const last = log[log.length - 1];
     if (!last || typeof last !== 'object') return GENESIS;
-    return String(last.docHash ?? '');
+    return String(last[hashField] ?? '');
   }
 
   /**
@@ -59,8 +65,9 @@ export function auditChain(opts) {
     const prevHash = headOf(log);
     const i = log.length;
     const base = { ...(entry && typeof entry === 'object' ? entry : {}), i, prevHash };
-    const docHash = await sha256(payloadOf(prevHash, base, i));
-    return { ...base, docHash };
+    // await, because a layout may itself need to hash something before it can say what is signed.
+    const digest = await sha256(await payloadOf(prevHash, base, i));
+    return { ...base, [hashField]: digest };
   }
 
   /**
@@ -81,12 +88,12 @@ export function auditChain(opts) {
         return { ok: false, brokeAt: i, id: e.id ?? null, entries: log.length,
                  reason: 'this entry does not link to the one before it — something was inserted, removed or reordered' };
       }
-      const expected = await sha256(payloadOf(prev, e, i));
-      if (expected !== e.docHash) {
+      const expected = await sha256(await payloadOf(prev, e, i));
+      if (expected !== e[hashField]) {
         return { ok: false, brokeAt: i, id: e.id ?? null, entries: log.length,
                  reason: 'this entry was altered after it was written' };
       }
-      prev = e.docHash;
+      prev = e[hashField];
     }
 
     // ⚑ THE HONEST BOUND. A chain proves nothing was changed or removed from the MIDDLE. Delete the

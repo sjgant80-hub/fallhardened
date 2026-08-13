@@ -131,6 +131,49 @@ console.log('\n=== §5 · the layout really is a parameter ===');
   ok((await other.verify(theirs)).ok === true, 'and its own log verifies under its own layout');
 }
 
+console.log('\n=== §7 · ⚑ THE CHAIN FIELD IS NOT ALWAYS CALLED docHash ===');
+{
+  // One tool in this estate keeps TWO hashes: a docHash over the payload, and a separate `hash` that
+  // is the actual link. Assuming the field name would have made its whole log unverifiable.
+  const two = auditChain({ sha256: sha, payloadOf, hashField: 'hash' });
+  let log = [];
+  for (let i = 0; i < 3; i++) log = [...log, await two.append(log, { id: 'x' + i, ts: i, action: 'saved', payload: { i } })];
+  ok(log[0].hash && log[0].docHash === undefined, '⚑ the digest lands on the field it was told to use, and only that one');
+  ok(log[1].prevHash === log[0].hash, 'and the links are built from that field');
+  ok(two.headOf(log) === log[2].hash, 'the head reads it too');
+  ok((await two.verify(log)).ok === true, 'a log keyed on `hash` verifies');
+
+  const t = [...log]; t[1] = { ...t[1], payload: { i: 'edited' } };
+  ok((await two.verify(t)).ok === false, 'and tampering with it is still caught');
+
+  // A chain told the wrong field name must NOT quietly pass.
+  const wrongField = auditChain({ sha256: sha, payloadOf, hashField: 'docHash' });
+  ok((await wrongField.verify(log)).ok === false,
+     '⚑ reading the wrong field does not accidentally verify — it fails, loudly');
+
+  ok(auditChain({ sha256: sha, payloadOf, hashField: '' }).headOf([{ docHash: 'd' }]) === 'd',
+     'an empty field name falls back to the default rather than reading undefined');
+  ok(auditChain({ sha256: sha, payloadOf, hashField: 7 }).headOf([{ docHash: 'd' }]) === 'd',
+     'and so does a non-string');
+}
+
+console.log('\n=== §8 · ⚑ A LAYOUT MAY NEED TO HASH SOMETHING ITSELF ===');
+{
+  // fallpractice signs prevHash + sha256(payload) + ts + i — the layout has to await a digest before
+  // it can say what the bytes are. A payloadOf that returns a promise must be awaited, or the chain
+  // hashes the string "[object Promise]" for every entry and every log verifies against nonsense.
+  const nested = async (prev, e, i) => prev + (await sha(JSON.stringify(e.payload ?? {}))) + (e.ts ?? '') + i;
+  const c = auditChain({ sha256: sha, payloadOf: nested, hashField: 'hash' });
+  let log = [];
+  for (let i = 0; i < 3; i++) log = [...log, await c.append(log, { ts: 100 + i, payload: { i } })];
+  ok(!String(log[0].hash).includes('Promise'), '⚑ the promise is awaited, not stringified');
+  ok((await c.verify(log)).ok === true, 'an async layout round-trips');
+
+  const t = [...log]; t[2] = { ...t[2], payload: { i: 99 } };
+  const v = await c.verify(t);
+  ok(v.ok === false && v.brokeAt === 2, 'and tampering under an async layout is caught at the right entry');
+}
+
 console.log('\n=== §6 · pure under garbage ===');
 {
   const junk = [null, undefined, '', 0, [], {}, NaN, [null], [{}], 'x'];
