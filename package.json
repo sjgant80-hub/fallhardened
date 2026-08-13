@@ -4,7 +4,7 @@
   "type": "module",
   "main": "hardened.mjs",
   "scripts": {
-    "test": "node --test hardened.test.mjs"
+    "test": "node --test hardened.test.mjs && node audit-chain.test.mjs"
   },
   "license": "MIT"
 }

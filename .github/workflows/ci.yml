@@ -1,11 +1,51 @@
-name: ci
-on: [push, pull_request]
+name: gate
+
+# ⚑ THIS USED TO RUN `npm test` AND NOTHING ELSE. Passing tests say the tests pass; they say nothing
+# about whether the tests would notice if the code broke. These are the estate's SHARED primitives —
+# every tool that vendors them inherits whatever is wrong here — so they get the mutation gate.
+on: [push, pull_request, workflow_dispatch]
+
 jobs:
-  test:
+  witness:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - run: npm test
+          node-version: '22'
+
+      # ⚑ PINNED. An unpinned checker can change its rules between the run that passed and the run
+      # you are citing.
+      - name: Fetch witness @v0.2
+        run: git clone --depth 1 --branch v0.2 https://github.com/sjgant80-hub/witness.git .witness
+
+      - name: Tests must pass before anything is mutated
+        run: |
+          node --test hardened.test.mjs
+          node audit-chain.test.mjs
+
+      - name: Mutation gate — hardened.mjs
+        run: |
+          node .witness/witness.mjs mutate hardened.mjs --cap 400 \
+            --baseline witness.baseline.json --test "node --test hardened.test.mjs" | tee gate-hardened.out
+
+      - name: Mutation gate — audit-chain.mjs
+        run: |
+          node .witness/witness.mjs mutate audit-chain.mjs --cap 400 \
+            --baseline witness.audit-chain.baseline.json --test "node audit-chain.test.mjs" | tee gate-audit.out
+
+      # A gate that reports "not clean" and exits zero is decorative.
+      - name: Refuse anything short of clean
+        run: |
+          node -e "
+            const fs = require('fs');
+            let bad = 0;
+            for (const f of ['gate-hardened.out','gate-audit.out']) {
+              const out = fs.readFileSync(f,'utf8');
+              const m = /\"clean\":\s*(true|false)/.exec(out);
+              if (!m) { console.error(f + ': no verdict at all'); bad++; continue; }
+              if (m[1] !== 'true') { console.error(f + ': mutants survived — those lines are test-theatre'); bad++; continue; }
+              console.log(f + ': clean');
+            }
+            process.exit(bad ? 1 : 0);
+          "
