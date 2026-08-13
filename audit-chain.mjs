@@ -37,6 +37,9 @@ export function auditChain(opts) {
   const sha256 = o.sha256;
   const payloadOf = o.payloadOf;
   const hashField = (typeof o.hashField === 'string' && o.hashField) ? o.hashField : 'docHash';
+  // ⚑ NOT EVERY CHAIN STARTS AT THE EMPTY STRING. One tool in this estate opens its log with 64
+  // zeros. Assuming genesis would make its very first entry fail to verify, for ever.
+  const genesis = (typeof o.genesis === 'string') ? o.genesis : GENESIS;
   if (!isFn(sha256)) throw new Error('auditChain needs a sha256(string) function');
   if (!isFn(payloadOf)) throw new Error('auditChain needs a payloadOf(prevHash, entry, index) function');
 
@@ -49,9 +52,9 @@ export function auditChain(opts) {
    */
   function headOf(entries) {
     const log = Array.isArray(entries) ? entries : [];
-    if (!log.length) return GENESIS;
+    if (!log.length) return genesis;
     const last = log[log.length - 1];
-    if (!last || typeof last !== 'object') return GENESIS;
+    if (!last || typeof last !== 'object') return genesis;
     return String(last[hashField] ?? '');
   }
 
@@ -63,10 +66,19 @@ export function auditChain(opts) {
   async function append(entries, entry) {
     const log = Array.isArray(entries) ? entries : [];
     const prevHash = headOf(log);
-    const i = log.length;
+    // ⚑ RESPECT THE CALLER'S NUMBERING. These tools number entries from 1 and SIGN that number.
+    // Overwriting it with a zero-based position would renumber every new entry and quietly change
+    // what gets hashed.
+    const given = (entry && typeof entry === 'object') ? entry.i : undefined;
+    const i = Number.isFinite(given) ? given : log.length;
     const base = { ...(entry && typeof entry === 'object' ? entry : {}), i, prevHash };
+    // ⚑ THE THIRD ARGUMENT IS THE POSITION IN THE LOG, NOT THE ENTRY'S OWN NUMBER. verify() walks the
+    // array and passes the array index, so append must pass the same thing or a one-based log signs
+    // one value and verifies against another — every entry written would fail its own check.
+    // A layout that wants the entry's number reads it off the entry, where it lives.
+    const pos = log.length;
     // await, because a layout may itself need to hash something before it can say what is signed.
-    const digest = await sha256(await payloadOf(prevHash, base, i));
+    const digest = await sha256(await payloadOf(prevHash, base, pos));
     return { ...base, [hashField]: digest };
   }
 
@@ -80,7 +92,7 @@ export function auditChain(opts) {
   async function verify(entries, checkOpts) {
     const log = Array.isArray(entries) ? entries : [];
     const c = (checkOpts && typeof checkOpts === 'object') ? checkOpts : {};
-    let prev = GENESIS;
+    let prev = genesis;
 
     for (let i = 0; i < log.length; i++) {
       const e = (log[i] && typeof log[i] === 'object') ? log[i] : {};

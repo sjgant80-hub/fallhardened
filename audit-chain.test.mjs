@@ -174,6 +174,43 @@ console.log('\n=== §8 · ⚑ A LAYOUT MAY NEED TO HASH SOMETHING ITSELF ===');
   ok(v.ok === false && v.brokeAt === 2, 'and tampering under an async layout is caught at the right entry');
 }
 
+console.log('\n=== §9 · ⚑ NOT EVERY CHAIN STARTS AT THE EMPTY STRING ===');
+{
+  // One tool opens its log with 64 zeros. Assuming genesis would make its very first entry fail to
+  // verify for ever — and the first entry is the one a regulator asks about.
+  const ZEROS = '0'.repeat(64);
+  const z = auditChain({ sha256: sha, payloadOf, genesis: ZEROS });
+  ok(z.headOf([]) === ZEROS, '⚑ an empty log heads at the genesis it was given, not at ""');
+  const first = await z.append([], { ts: 1, action: 'saved', payload: {} });
+  ok(first.prevHash === ZEROS, 'and the first entry links to it');
+  ok((await z.verify([first])).ok === true, 'a log opened at a custom genesis verifies');
+
+  const dflt = auditChain({ sha256: sha, payloadOf });
+  ok((await dflt.verify([first])).ok === false,
+     '⚑ and a chain expecting the DEFAULT genesis rejects it — the opening value is part of the signature');
+  ok(auditChain({ sha256: sha, payloadOf, genesis: 7 }).headOf([]) === GENESIS,
+     'a non-string genesis falls back to the default rather than becoming the number 7');
+}
+
+console.log('\n=== §10 · ⚑ THE CALLER\'S NUMBERING IS NOT OVERWRITTEN ===');
+{
+  // Every trade tool here numbers entries from 1 and SIGNS that number. A kernel that replaced it
+  // with a zero-based position would renumber every new entry and change what gets hashed.
+  const c = auditChain({ sha256: sha, payloadOf });
+  const one = await c.append([], { i: 1, ts: 1, action: 'saved', payload: {} });
+  ok(one.i === 1, '⚑ an entry that arrives numbered 1 stays numbered 1');
+  const two = await c.append([one], { i: 2, ts: 2, action: 'saved', payload: {} });
+  ok(two.i === 2, 'and the next stays 2, not 1');
+  ok((await c.verify([one, two])).ok === true, 'a one-based log verifies');
+
+  const auto = await c.append([], { ts: 1, action: 'saved', payload: {} });
+  ok(auto.i === 0, 'with no number given it still falls back to the position in the log');
+  const auto2 = await c.append([auto], { ts: 2, action: 'saved', payload: {} });
+  ok(auto2.i === 1, 'and keeps counting');
+  const junkNum = await c.append([], { i: 'three', ts: 1, payload: {} });
+  ok(junkNum.i === 0, 'a number that is not a number is ignored rather than signed as text');
+}
+
 console.log('\n=== §6 · pure under garbage ===');
 {
   const junk = [null, undefined, '', 0, [], {}, NaN, [null], [{}], 'x'];
